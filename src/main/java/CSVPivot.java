@@ -21,19 +21,37 @@ public class CSVPivot {
         private LongWritable column = new LongWritable();
         private MapWritable cell = new MapWritable();
 
+        /**
+         * The map function takes the line number and the line content.
+         * It returns a list of cells with additional data which is needed to correctly place the cell in the reduce function.
+         * Each item on the list has a key, the cell's line position, which will be used by the shuffle/sort algorithm to group cells of the same pivot CSV line.
+         *
+         * @param key CSV line offset
+         * @param value line content
+         * @param context object to interact with Hadoop system
+         * @throws IOException exception
+         * @throws InterruptedException exception
+         */
         public void map(LongWritable key, Text value, Context context
         ) throws IOException, InterruptedException {
 
             // Split the line into cells (cells are separated by ',' character in CSV format)
             String[] cells = value.toString().split(",");
 
+            // For each cell in the CSV line
             for(int i=0; i<cells.length; i++){
+
+                // The key is the position in the line which will be its new line number.
                 column.set(i);
 
+                // position, the future line position of the cell which is currently its line number
                 int position = toIntExact(key.get());
-
                 cell.put(new Text("position"), new IntWritable(position));
+
+                // cell: the cell text
                 cell.put(new Text("cell"), new Text(cells[i]));
+
+                // Write the result
                 context.write(column, cell);
             }
         }
@@ -44,16 +62,27 @@ public class CSVPivot {
 
         private Text result = new Text();
 
+        /**
+         * The reduce function takes the line number in the pivot CSV and a list of the words of the line and their positionning.
+         * The function then composes the CSV line and returns it.
+         *
+         * @param key the line number in the CSV
+         * @param values contains the words of the line and their positionning
+         * @param context object to interact with Hadoop system
+         * @throws IOException exception
+         * @throws InterruptedException exception
+         */
         public void reduce(LongWritable key, Iterable<MapWritable> values,
                            Context context
         ) throws IOException, InterruptedException {
 
-            // The CSV line that will be generated within this function
+            // Used to generate the CSV line
             StringBuilder line = new StringBuilder();
 
             // Stores the cells. We will use this list to generate the csv line later
             ArrayList<MapWritable> cells = new ArrayList<>();
 
+            // We fill the list with every cell of the line
             for (MapWritable val : values){
 
                 MapWritable cell = new MapWritable();
@@ -86,6 +115,8 @@ public class CSVPivot {
             }
 
             result.set(line.toString());
+
+            // return reduce result
             context.write(key, result);
         }
     }
