@@ -58,7 +58,7 @@ public class CSVPivot {
     }
 
     public static class IntSumReducer
-            extends Reducer<LongWritable,MapWritable,LongWritable,Text> {
+            extends Reducer<LongWritable,MapWritable,NullWritable,Text> {
 
         private Text result = new Text();
 
@@ -116,8 +116,8 @@ public class CSVPivot {
 
             result.set(line.toString());
 
-            // return reduce result
-            context.write(key, result);
+            // return reduce result, we do not return a key as we do not want Hadoop to write the key to the output file
+            context.write(NullWritable.get(), result);
         }
     }
 
@@ -136,6 +136,9 @@ public class CSVPivot {
 
         FileInputFormat.addInputPath(job, inputFilePath);
         FileOutputFormat.setOutputPath(job, outputFilePath);
+
+        job.setOutputKeyClass(NullWritable.class);
+        job.setOutputValueClass(Text.class);
 
         // configuration contains reference to the named node
         FileSystem fs = FileSystem.get(conf);
