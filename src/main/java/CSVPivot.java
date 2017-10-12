@@ -1,13 +1,13 @@
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.*;
-import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.Mapper;
-import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
@@ -15,8 +15,56 @@ import static java.lang.StrictMath.toIntExact;
 
 public class CSVPivot {
 
+    public static class CSVOutputFormat
+            extends FileOutputFormat<LongWritable, Text> {
+
+        @Override
+        public org.apache.hadoop.mapreduce.RecordWriter<LongWritable, Text> getRecordWriter(TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+
+            //get the current path
+            Path path = FileOutputFormat.getOutputPath(taskAttemptContext);
+
+            //create the full path with the output directory plus our filename
+            Path fullPath = new Path(path, "output.csv");
+
+            //create the file in the file system
+            FileSystem fs = path.getFileSystem(taskAttemptContext.getConfiguration());
+
+            FSDataOutputStream fileOut = fs.create(fullPath, taskAttemptContext);
+
+            //create our record writer with the new file
+            return new CSVRecordWriter(fileOut);
+        }
+    }
+
+    public static class CSVRecordWriter
+            extends RecordWriter<LongWritable, Text>{
+
+        private DataOutputStream out;
+
+        CSVRecordWriter(DataOutputStream stream) {
+            this.out = stream;
+        }
+
+        @Override
+        public void write(LongWritable longWritable, Text text) throws IOException, InterruptedException {
+            // Write the line
+            out.writeBytes(text.toString());
+
+            // line break
+            out.writeBytes("\r\n");
+        }
+
+        @Override
+        public void close(TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+            // Close the output file
+            this.out.close();
+        }
+    }
+
+
     public static class TokenizerMapper
-            extends Mapper<LongWritable, Text, LongWritable, MapWritable>{
+            extends Mapper<LongWritable, Text, LongWritable, MapWritable> {
 
         private LongWritable column = new LongWritable();
         private MapWritable cell = new MapWritable();
@@ -57,8 +105,8 @@ public class CSVPivot {
         }
     }
 
-    public static class IntSumReducer
-            extends Reducer<LongWritable,MapWritable,NullWritable,Text> {
+    public static class StringConcatReducer
+            extends Reducer<LongWritable,MapWritable,LongWritable,Text> {
 
         private Text result = new Text();
 
@@ -116,8 +164,8 @@ public class CSVPivot {
 
             result.set(line.toString());
 
-            // return reduce result, we do not return a key as we do not want Hadoop to write the key to the output file
-            context.write(NullWritable.get(), result);
+            // return reduce result
+            context.write(key, result);
         }
     }
 
@@ -126,7 +174,7 @@ public class CSVPivot {
         Job job = Job.getInstance(conf, "CSV pivot");
         job.setJarByClass(CSVPivot.class);
         job.setMapperClass(TokenizerMapper.class);
-        job.setReducerClass(IntSumReducer.class);
+        job.setReducerClass(StringConcatReducer.class);
 
         job.setMapOutputKeyClass(LongWritable.class);
         job.setMapOutputValueClass(MapWritable.class);
@@ -137,8 +185,8 @@ public class CSVPivot {
         FileInputFormat.addInputPath(job, inputFilePath);
         FileOutputFormat.setOutputPath(job, outputFilePath);
 
-        job.setOutputKeyClass(NullWritable.class);
-        job.setOutputValueClass(Text.class);
+        // Use custom output writer for CSV
+        job.setOutputFormatClass(CSVOutputFormat.class);
 
         // configuration contains reference to the named node
         FileSystem fs = FileSystem.get(conf);
